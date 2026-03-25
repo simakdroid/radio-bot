@@ -599,27 +599,14 @@ def get_broadcasts_for_today(now_utc: datetime, db_path: str) -> list[Broadcast]
     return entries
 
 
-def get_monolingual_stations(entries: list[Broadcast]) -> dict[tuple[str, str], list[Broadcast]]:
-    unique: dict[tuple[str, str], list[Broadcast]] = {}
+def group_stations_by_lang(entries: list[Broadcast]) -> dict[str, list[tuple[tuple[str, str], list[Broadcast]]]]:
+    """Group all stations by their language (including multilingual stations)."""
+    grouped_by_lang: dict[str, list[tuple[tuple[str, str], list[Broadcast]]]] = {}
     for item in entries:
         key = (item.station, item.itu)
-        unique.setdefault(key, []).append(item)
-
-    monolingual_stations: dict[tuple[str, str], list[Broadcast]] = {}
-    for key, station_entries in unique.items():
-        langs = {e.lang for e in station_entries}
-        if len(langs) == 1:
-            monolingual_stations[key] = station_entries
-    return monolingual_stations
-
-
-def group_monolingual_by_lang(
-    monolingual_stations: dict[tuple[str, str], list[Broadcast]],
-) -> dict[str, list[tuple[tuple[str, str], list[Broadcast]]]]:
-    grouped_by_lang: dict[str, list[tuple[tuple[str, str], list[Broadcast]]]] = {}
-    for key, station_entries in monolingual_stations.items():
-        lang = station_entries[0].lang
-        grouped_by_lang.setdefault(lang, []).append((key, station_entries))
+        lang = item.lang
+        # Добавляем в группу каждого языка, на котором вещает станция
+        grouped_by_lang.setdefault(lang, []).append((key, [item]))
     return grouped_by_lang
 
 
@@ -633,11 +620,9 @@ def build_message(now_utc: datetime, entries: list[Broadcast]) -> str:
     if not entries:
         return header + "\nСегодня активных записей не найдено."
 
-    monolingual_stations = get_monolingual_stations(entries)
-    if not monolingual_stations:
-        return header + "\nНе найдено станций, вещающих только на одном языке."
-
-    grouped_by_lang = group_monolingual_by_lang(monolingual_stations)
+    grouped_by_lang = group_stations_by_lang(entries)
+    if not grouped_by_lang:
+        return header + "\nНе найдено станций."
 
     lines: list[str] = []
     for lang in sorted(grouped_by_lang.keys()):
@@ -650,10 +635,10 @@ def build_message(now_utc: datetime, entries: list[Broadcast]) -> str:
         lines.append("")
 
     body = "\n".join(lines).rstrip()
-    total = len(monolingual_stations)
+    total = sum(len(items) for items in grouped_by_lang.values())
     message = (
         f"{header}\n"
-        f"Найдено монолингвальных станций: {total}\n"
+        f"Найдено станций: {total}\n"
         f"Языков: {len(grouped_by_lang)}\n\n"
         f"{body}"
     )
@@ -662,7 +647,7 @@ def build_message(now_utc: datetime, entries: list[Broadcast]) -> str:
 
 def build_language_specific_message(
     now_utc: datetime,
-    monolingual_stations: dict[tuple[str, str], list[Broadcast]],
+    entries: list[Broadcast],
     lang: str,
 ) -> str:
     date_str = now_utc.strftime("%Y-%m-%d")
@@ -671,22 +656,26 @@ def build_language_specific_message(
         f"Язык: {format_lang_label(lang)}\n"
         f"Источник: {EIBI_URL}\n"
     )
-    filtered = [
-        (key, station_entries)
-        for key, station_entries in monolingual_stations.items()
-        if station_entries[0].lang == lang
-    ]
-    if not filtered:
+    # Фильтруем все записи для выбранного языка
+    lang_entries = [e for e in entries if e.lang == lang]
+    if not lang_entries:
         return header + "\nДля выбранного языка сегодня ничего не найдено."
 
+    # Группируем по станциям
+    stations_dict: dict[tuple[str, str], list[Broadcast]] = {}
+    for e in lang_entries:
+        key = (e.station, e.itu)
+        stations_dict.setdefault(key, []).append(e)
+
+    sorted_stations = sorted(stations_dict.items(), key=lambda x: x[0][0].lower())
     lines: list[str] = []
-    for (station, itu), station_entries in sorted(filtered, key=lambda x: x[0][0].lower()):
+    for (station, itu), station_entries in sorted_stations:
         chunks = [f"{e.frequency}kHz {e.time_utc}" for e in station_entries[:3]]
         extra = len(station_entries) - len(chunks)
         suffix = f" +{extra} ещё" if extra > 0 else ""
         lines.append(f"• {station} ({itu}) — {', '.join(chunks)}{suffix}")
 
-    message = f"{header}\nНайдено станций: {len(filtered)}\n\n" + "\n".join(lines)
+    message = f"{header}\nНайдено станций: {len(stations_dict)}\n\n" + "\n".join(lines)
     return message
 
 
@@ -779,15 +768,14 @@ async def now_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await progress_message.edit_text("Ошибка SQLite базы данных. Проверьте путь к базе и права доступа.")
         return
 
-    monolingual_stations = get_monolingual_stations(entries)
-    if not monolingual_stations:
-        await progress_message.edit_text("Сегодня не найдено станций, вещающих только на одном языке.")
+    if not entries:
+        await progress_message.edit_text("Сегодня не найдено активных станций.")
         return
 
-    grouped_by_lang = group_monolingual_by_lang(monolingual_stations)
+    grouped_by_lang = group_stations_by_lang(entries)
     # Save snapshot per chat to avoid reparsing on every button click.
     context.chat_data["last_now_utc"] = now_utc
-    context.chat_data["last_monolingual_stations"] = monolingual_stations
+    context.chat_data["last_entries"] = entries
 
     await progress_message.edit_text(
         "Выберите язык вещания на сегодня (UTC):"
@@ -821,19 +809,20 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     data = query.data or ""
     cached_now_utc: datetime | None = context.chat_data.get("last_now_utc")
-    cached_stations: dict[tuple[str, str], list[Broadcast]] | None = context.chat_data.get("last_monolingual_stations")
-    if cached_now_utc is None or cached_stations is None:
+    cached_entries: list[Broadcast] | None = context.chat_data.get("last_entries")
+    if cached_now_utc is None or cached_entries is None:
         await query.edit_message_text("Сессия истекла. Отправьте /now еще раз.")
         return
 
     if data == "lang_back":
-        if not cached_stations:
-            await query.edit_message_text("Сегодня не найдено станций, вещающих только на одном языке.")
+        if not cached_entries:
+            await query.edit_message_text("Сегодня не найдено станций.")
             return
 
+        grouped_by_lang = group_stations_by_lang(cached_entries)
         await query.edit_message_text(
             "Выберите язык вещания на сегодня (UTC):",
-            reply_markup=build_language_keyboard(group_monolingual_by_lang(cached_stations)),
+            reply_markup=build_language_keyboard(grouped_by_lang),
         )
         return
 
@@ -841,7 +830,7 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
     lang = data.split(":", 1)[1]
 
-    message = build_language_specific_message(cached_now_utc, cached_stations, lang)
+    message = build_language_specific_message(cached_now_utc, cached_entries, lang)
     chunks = split_message(message)
     total = len(chunks)
     first_chunk = chunks[0]
