@@ -12,7 +12,7 @@ from typing import Iterable
 
 import requests
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import NetworkError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
@@ -949,6 +949,12 @@ async def main() -> None:
         try:
             await app.initialize()
             await app.start()
+            # Регистрируем команды для автодополнения по /
+            await app.bot.set_my_commands([
+                BotCommand("start", "Показать доступные команды"),
+                BotCommand("now", "Выбрать язык и получить станции на сегодня"),
+                BotCommand("refresh", "Обновить базу данных"),
+            ])
             await app.updater.start_polling(
                 bootstrap_retries=-1,
                 timeout=60,
