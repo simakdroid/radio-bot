@@ -734,10 +734,24 @@ def format_lang_label(lang: str) -> str:
     return f"{lang} ({LANGUAGE_NAMES[lang]})" if lang in LANGUAGE_NAMES else lang
 
 
+def is_special_lang_code(lang: str) -> bool:
+    """Check if language code is a special non-language code."""
+    return lang.startswith("-")
+
+
 def build_language_keyboard(
     grouped_by_lang: dict[str, list[tuple[tuple[str, str], list[Broadcast]]]],
+    min_stations: int = 10,
 ) -> InlineKeyboardMarkup:
-    lang_counts = sorted(((lang, len(items)) for lang, items in grouped_by_lang.items()), key=lambda x: x[0])
+    # Фильтруем языки: специальные коды всегда включаем, остальные - по порогу
+    lang_counts = sorted(
+        (
+            (lang, len(items))
+            for lang, items in grouped_by_lang.items()
+            if is_special_lang_code(lang) or len(items) >= min_stations
+        ),
+        key=lambda x: x[0]
+    )
     keyboard_rows: list[list[InlineKeyboardButton]] = []
     row: list[InlineKeyboardButton] = []
     for idx, (lang, count) in enumerate(lang_counts, start=1):
