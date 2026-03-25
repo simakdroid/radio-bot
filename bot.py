@@ -873,8 +873,59 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(
         "Доступные команды:\n"
         "/now — выбрать язык и получить список станций на сегодня (UTC).\n"
+        "/freq <частота> — найти станции на указанной частоте (например, /freq 6170).\n"
         "/refresh — принудительно обновить локальную SQLite базу."
     )
+
+
+async def freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Поиск станций по частоте."""
+    if not context.args:
+        await update.message.reply_text(
+            "Укажите частоту в кГц. Например: /freq 6170\n"
+            "Можно указать дробную частоту: /freq 15245.2"
+        )
+        return
+
+    # Получаем частоту из аргумента
+    freq_arg = context.args[0].replace(",", ".")
+    try:
+        freq = float(freq_arg)
+    except ValueError:
+        await update.message.reply_text("Неверный формат частоты. Укажите число, например: /freq 6170")
+        return
+
+    db_path = context.application.bot_data["db_path"]
+    now_utc = datetime.now(timezone.utc)
+
+    # Загружаем записи за сегодня
+    entries = get_broadcasts_for_today(now_utc, db_path)
+
+    # Ищем станции на указанной частоте
+    matching = [e for e in entries if e.frequency == freq_arg or e.frequency == str(freq)]
+
+    if not matching:
+        await update.message.reply_text(f"На частоте {freq} кГц сегодня ничего не найдено.")
+        return
+
+    # Группируем по станциям
+    stations_dict: dict[tuple[str, str], list[Broadcast]] = {}
+    for e in matching:
+        key = (e.station, e.itu)
+        stations_dict.setdefault(key, []).append(e)
+
+    sorted_stations = sorted(stations_dict.items(), key=lambda x: x[0][0].lower())
+
+    lines = [f"Станции на частоте {freq} кГц сегодня:\n"]
+    for (station, itu), station_entries in sorted_stations:
+        lang = station_entries[0].lang
+        lang_label = format_lang_label(lang)
+        times = ", ".join(f"{e.time_utc}" for e in station_entries)
+        lines.append(f"• {station} ({itu}) — {lang_label}, {times}")
+
+    message = "\n".join(lines)
+    await update.message.reply_text(message)
+    logging.info("/freq used by chat %s: freq=%s, found=%d", update.effective_chat.id, freq, len(stations_dict))
 
 
 async def scheduled_report_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -932,6 +983,7 @@ async def main() -> None:
     app.bot_data["chat_id"] = chat_id
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("now", now_command))
+    app.add_handler(CommandHandler("freq", freq_command))
     app.add_handler(CommandHandler("refresh", refresh_command))
     app.add_handler(CallbackQueryHandler(language_pick_callback, pattern=r"^lang(?::|_back$)"))
 
@@ -962,6 +1014,7 @@ async def main() -> None:
             await app.bot.set_my_commands([
                 BotCommand("start", "Показать доступные команды"),
                 BotCommand("now", "Выбрать язык и получить станции на сегодня"),
+                BotCommand("freq", "Найти станции по частоте"),
                 BotCommand("refresh", "Обновить базу данных"),
             ])
             await app.updater.start_polling(
