@@ -13,7 +13,7 @@ from typing import Iterable
 import requests
 from dotenv import load_dotenv
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ConversationHandler, MessageHandler, filters
+from telegram.ext import MessageHandler, filters
 from telegram.error import NetworkError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
@@ -877,10 +877,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "/freq — найти станции по частоте (бот спросит частоту).\n"
         "/refresh — принудительно обновить локальную SQLite базу."
     )
-
-
-# States для conversation
-(FREQ_INPUT,) = range(1)
 
 
 async def freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
