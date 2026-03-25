@@ -874,7 +874,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(
         "Доступные команды:\n"
         "/now — выбрать язык и получить список станций на сегодня (UTC).\n"
-        "/freq <частота> — найти станции на указанной частоте (например, /freq 6170).\n"
+        "/freq — найти станции по частоте (бот спросит частоту).\n"
         "/refresh — принудительно обновить локальную SQLite базу."
     )
 
@@ -883,28 +883,37 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 (FREQ_INPUT,) = range(1)
 
 
-async def freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Начало поиска по частоте - запрашиваем частоту."""
+    # Устанавливаем флаг ожидания ввода частоты
+    context.user_data["awaiting_freq"] = True
     await update.message.reply_text(
         "Введите частоту в кГц (например: 6170 или 15245.2):\n"
         "Для отмены нажмите /cancel"
     )
-    return FREQ_INPUT
 
 
-async def freq_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработка введённой частоты."""
+async def handle_freq_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработка ввода частоты (если пользователь в режиме ожидания)."""
+    # Проверяем, ожидаем ли мы ввод частоты от этого пользователя
+    if not context.user_data.get("awaiting_freq"):
+        return  # Не в режиме ожидания, игнорируем
+    
+    # Сбрасываем флаг
+    context.user_data["awaiting_freq"] = False
+    
     freq_arg = update.message.text.replace(",", ".")
     
     # Проверка на отмену
     if freq_arg.lower() == "/cancel":
         await update.message.reply_text("Отменено.")
-        return ConversationHandler.END
+        return
     
     # Проверка на команду
     if freq_arg.startswith("/"):
         await update.message.reply_text("Введите частоту (число), для отмены нажмите /cancel")
-        return FREQ_INPUT
+        context.user_data["awaiting_freq"] = True  # Снова ожидаем ввод
+        return
     
     # Проверка формата
     try:
@@ -913,7 +922,8 @@ async def freq_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await update.message.reply_text(
             "Неверный формат частоты. Введите число, например: 6170"
         )
-        return FREQ_INPUT
+        context.user_data["awaiting_freq"] = True  # Снова ожидаем ввод
+        return
 
     db_path = context.application.bot_data["db_path"]
     now_utc = datetime.now(timezone.utc)
@@ -926,7 +936,7 @@ async def freq_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     if not matching:
         await update.message.reply_text(f"На частоте {freq} кГц сегодня ничего не найдено.")
-        return ConversationHandler.END
+        return
 
     # Группируем по станциям
     stations_dict: dict[tuple[str, str], list[Broadcast]] = {}
@@ -946,13 +956,6 @@ async def freq_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     message = "\n".join(lines)
     await update.message.reply_text(message)
     logging.info("/freq used by chat %s: freq=%s, found=%d", update.effective_chat.id, freq, len(stations_dict))
-    return ConversationHandler.END
-
-
-async def freq_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Отмена ввода частоты."""
-    await update.message.reply_text("Отменено.")
-    return ConversationHandler.END
 
 
 async def scheduled_report_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1017,7 +1020,7 @@ async def main() -> None:
     freq_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("freq", freq_command)],
         states={
-            FREQ_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, freq_received)],
+            FREQ_INPUT: [MessageHandler(filters.Text(), freq_received)],
         },
         fallbacks=[CommandHandler("cancel", freq_cancel)],
     )
