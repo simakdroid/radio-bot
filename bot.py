@@ -605,8 +605,15 @@ def group_stations_by_lang(entries: list[Broadcast]) -> dict[str, list[tuple[tup
     for item in entries:
         key = (item.station, item.itu)
         lang = item.lang
-        # Добавляем в группу каждого языка, на котором вещает станция
-        grouped_by_lang.setdefault(lang, []).append((key, [item]))
+        # Объединяем все записи станции для каждого языка
+        station_list = grouped_by_lang.setdefault(lang, [])
+        # Ищем существующую станцию в группе
+        for i, (existing_key, existing_items) in enumerate(station_list):
+            if existing_key == key:
+                existing_items.append(item)
+                break
+        else:
+            station_list.append((key, [item]))
     return grouped_by_lang
 
 
