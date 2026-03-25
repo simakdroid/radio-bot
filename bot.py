@@ -13,6 +13,7 @@ from typing import Iterable
 import requests
 from dotenv import load_dotenv
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ConversationHandler, MessageHandler, filters
 from telegram.error import NetworkError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
@@ -878,22 +879,41 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
-async def freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Поиск станций по частоте."""
-    if not context.args:
-        await update.message.reply_text(
-            "Укажите частоту в кГц. Например: /freq 6170\n"
-            "Можно указать дробную частоту: /freq 15245.2"
-        )
-        return
+# States для conversation
+(FREQ_INPUT,) = range(1)
 
-    # Получаем частоту из аргумента
-    freq_arg = context.args[0].replace(",", ".")
+
+async def freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Начало поиска по частоте - запрашиваем частоту."""
+    await update.message.reply_text(
+        "Введите частоту в кГц (например: 6170 или 15245.2):\n"
+        "Для отмены нажмите /cancel"
+    )
+    return FREQ_INPUT
+
+
+async def freq_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Обработка введённой частоты."""
+    freq_arg = update.message.text.replace(",", ".")
+    
+    # Проверка на отмену
+    if freq_arg.lower() == "/cancel":
+        await update.message.reply_text("Отменено.")
+        return ConversationHandler.END
+    
+    # Проверка на команду
+    if freq_arg.startswith("/"):
+        await update.message.reply_text("Введите частоту (число), для отмены нажмите /cancel")
+        return FREQ_INPUT
+    
+    # Проверка формата
     try:
         freq = float(freq_arg)
     except ValueError:
-        await update.message.reply_text("Неверный формат частоты. Укажите число, например: /freq 6170")
-        return
+        await update.message.reply_text(
+            "Неверный формат частоты. Введите число, например: 6170"
+        )
+        return FREQ_INPUT
 
     db_path = context.application.bot_data["db_path"]
     now_utc = datetime.now(timezone.utc)
@@ -906,7 +926,7 @@ async def freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     if not matching:
         await update.message.reply_text(f"На частоте {freq} кГц сегодня ничего не найдено.")
-        return
+        return ConversationHandler.END
 
     # Группируем по станциям
     stations_dict: dict[tuple[str, str], list[Broadcast]] = {}
@@ -926,6 +946,13 @@ async def freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     message = "\n".join(lines)
     await update.message.reply_text(message)
     logging.info("/freq used by chat %s: freq=%s, found=%d", update.effective_chat.id, freq, len(stations_dict))
+    return ConversationHandler.END
+
+
+async def freq_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Отмена ввода частоты."""
+    await update.message.reply_text("Отменено.")
+    return ConversationHandler.END
 
 
 async def scheduled_report_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -983,9 +1010,18 @@ async def main() -> None:
     app.bot_data["chat_id"] = chat_id
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("now", now_command))
-    app.add_handler(CommandHandler("freq", freq_command))
     app.add_handler(CommandHandler("refresh", refresh_command))
     app.add_handler(CallbackQueryHandler(language_pick_callback, pattern=r"^lang(?::|_back$)"))
+
+    # Conversation для интерактивного ввода частоты
+    freq_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("freq", freq_command)],
+        states={
+            FREQ_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, freq_received)],
+        },
+        fallbacks=[CommandHandler("cancel", freq_cancel)],
+    )
+    app.add_handler(freq_conv_handler)
 
     app.job_queue.run_daily(
         scheduled_refresh_callback,
