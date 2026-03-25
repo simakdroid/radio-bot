@@ -1016,15 +1016,10 @@ async def main() -> None:
     app.add_handler(CommandHandler("refresh", refresh_command))
     app.add_handler(CallbackQueryHandler(language_pick_callback, pattern=r"^lang(?::|_back$)"))
 
-    # Conversation для интерактивного ввода частоты
-    freq_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("freq", freq_command)],
-        states={
-            FREQ_INPUT: [MessageHandler(filters.Text(), freq_received)],
-        },
-        fallbacks=[CommandHandler("cancel", freq_cancel)],
-    )
-    app.add_handler(freq_conv_handler)
+    # Обработчик для команды /freq
+    app.add_handler(CommandHandler("freq", freq_command))
+    # Обработчик для ввода частоты (проверяет флаг в user_data)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_freq_input))
 
     app.job_queue.run_daily(
         scheduled_refresh_callback,
