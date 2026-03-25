@@ -635,10 +635,9 @@ def build_message(now_utc: datetime, entries: list[Broadcast]) -> str:
     for lang in sorted(grouped_by_lang.keys()):
         lines.append(f"{format_lang_label(lang)}:")
         for (station, itu), station_entries in sorted(grouped_by_lang[lang], key=lambda x: x[0][0].lower()):
-            chunks = [f"{e.frequency}kHz {e.time_utc}" for e in station_entries[:3]]
-            extra = len(station_entries) - len(chunks)
-            suffix = f" +{extra} ещё" if extra > 0 else ""
-            lines.append(f"• {station} ({itu}) — {', '.join(chunks)}{suffix}")
+            # Показываем все частоты и времена вещания
+            chunks = [f"{e.frequency}kHz {e.time_utc}" for e in station_entries]
+            lines.append(f"• {station} ({itu}) — {', '.join(chunks)}")
         lines.append("")
 
     body = "\n".join(lines).rstrip()
@@ -677,10 +676,9 @@ def build_language_specific_message(
     sorted_stations = sorted(stations_dict.items(), key=lambda x: x[0][0].lower())
     lines: list[str] = []
     for (station, itu), station_entries in sorted_stations:
-        chunks = [f"{e.frequency}kHz {e.time_utc}" for e in station_entries[:3]]
-        extra = len(station_entries) - len(chunks)
-        suffix = f" +{extra} ещё" if extra > 0 else ""
-        lines.append(f"• {station} ({itu}) — {', '.join(chunks)}{suffix}")
+        # Показываем все частоты и времена вещания
+        chunks = [f"{e.frequency}kHz {e.time_utc}" for e in station_entries]
+        lines.append(f"• {station} ({itu}) — {', '.join(chunks)}")
 
     message = f"{header}\nНайдено станций: {len(stations_dict)}\n\n" + "\n".join(lines)
     return message
