@@ -876,8 +876,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(
         "Доступные команды:\n"
         "/now — выбрать язык и получить список станций на сегодня (UTC).\n"
+        "/datetime — показать текущие дату и время UTC.\n"
         "/freq — найти станции по частоте (бот спросит частоту).\n"
         "/refresh — принудительно обновить локальную SQLite базу."
+    )
+
+
+async def datetime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показать текущие дату и время UTC."""
+    now_utc = datetime.now(timezone.utc)
+    await update.message.reply_text(
+        f"Текущее время UTC:\n{now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC"
     )
 
 
@@ -1012,6 +1021,7 @@ async def main() -> None:
     app.bot_data["chat_id"] = chat_id
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("now", now_command))
+    app.add_handler(CommandHandler("datetime", datetime_command))
     app.add_handler(CommandHandler("refresh", refresh_command))
     app.add_handler(CallbackQueryHandler(language_pick_callback, pattern=r"^lang(?::|_back$)"))
 
@@ -1047,6 +1057,7 @@ async def main() -> None:
             await app.bot.set_my_commands([
                 BotCommand("start", "Показать доступные команды"),
                 BotCommand("now", "Выбрать язык и получить станции на сегодня"),
+                BotCommand("datetime", "Показать текущее время UTC"),
                 BotCommand("freq", "Найти станции по частоте"),
                 BotCommand("refresh", "Обновить базу данных"),
             ])
