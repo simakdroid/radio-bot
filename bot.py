@@ -876,8 +876,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(
         "Доступные команды:\n"
         "/now — выбрать язык и получить список станций на сегодня (UTC).\n"
-        "/datetime_utc — показать текущие дату и время UTC.\n"
-        "/freq — найти станции по частоте (бот спросит частоту, вы введёте число).\n"
+        "/freq — найти станции по частоте (бот спросит частоту).\n"
         "/refresh — принудительно обновить локальную SQLite базу."
     )
 
@@ -1021,19 +1020,13 @@ async def main() -> None:
     # Обработчик для ввода частоты (проверяет флаг в user_data)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_freq_input))
 
-    # Проверяем инициализацию job_queue
-    if app.job_queue is None:
-        logging.error("Job queue is not initialized! Creating new one...")
-        app.job_queue = app._job_queue
-    
-    # Планируем задачи
-    refresh_job = app.job_queue.run_daily(
+    app.job_queue.run_daily(
         scheduled_refresh_callback,
         time=time(hour=23, minute=55, tzinfo=timezone.utc),
         days=(0, 1, 2, 3, 4, 5, 6),
         name="daily_eibi_prerefresh",
     )
-    report_job = app.job_queue.run_daily(
+    app.job_queue.run_daily(
         scheduled_report_callback,
         time=time(hour=0, minute=0, tzinfo=timezone.utc),
         days=(0, 1, 2, 3, 4, 5, 6),
@@ -1041,10 +1034,7 @@ async def main() -> None:
         name="daily_eibi_report",
     )
 
-    logging.info("Bot started.")
-    logging.info("Scheduled tasks:")
-    logging.info(f"  - daily_eibi_prerefresh at 23:55 UTC: {refresh_job}")
-    logging.info(f"  - daily_eibi_report at 00:00 UTC: {report_job}")
+    logging.info("Bot started. DB pre-refresh scheduled at 23:55 UTC, report at 00:00 UTC.")
     logging.info("Press Ctrl+C to stop.")
 
     # Telegram API can be temporarily unavailable from local network/VPN/proxy.
