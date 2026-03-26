@@ -877,6 +877,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "Доступные команды:\n"
         "/now — выбрать язык и получить список станций на сегодня (UTC).\n"
         "/current — станции, вещающие в текущий час UTC.\n"
+        "/datetime_utc — показать текущие дату и время UTC.\n"
         "/freq — найти станции по частоте (бот спросит частоту).\n"
         "/refresh — принудительно обновить локальную SQLite базу."
     )
@@ -896,6 +897,15 @@ def is_broadcasting_now(entry: Broadcast, current_hour: int) -> bool:
             return start_hour <= current_hour < end_hour
     except (ValueError, IndexError):
         return False
+
+
+async def datetime_utc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показать текущие дату и время UTC."""
+    now_utc = datetime.now(timezone.utc)
+    await update.message.reply_text(
+        f"Текущее время UTC:\n{now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC\n\n"
+        f"Часовой пояс: UTC"
+    )
 
 
 async def nowh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -933,7 +943,7 @@ async def nowh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     message = "\n".join(lines)
     await update.message.reply_text(message)
-    logging.info("/nowh used by chat %s, hour=%d, stations=%d", update.effective_chat.id, current_hour, len(stations_dict))
+    logging.info("/current used by chat %s, hour=%d, stations=%d", update.effective_chat.id, current_hour, len(stations_dict))
 
 
 async def freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1068,6 +1078,7 @@ async def main() -> None:
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("now", now_command))
     app.add_handler(CommandHandler("current", nowh_command))
+    app.add_handler(CommandHandler("datetime_utc", datetime_utc_command))
     app.add_handler(CommandHandler("refresh", refresh_command))
     app.add_handler(CallbackQueryHandler(language_pick_callback, pattern=r"^lang(?::|_back$)"))
 
@@ -1113,6 +1124,7 @@ async def main() -> None:
                 BotCommand("start", "Показать доступные команды"),
                 BotCommand("now", "Выбрать язык и получить станции на сегодня"),
                 BotCommand("current", "Станции, вещающие в текущий час"),
+                BotCommand("datetime_utc", "Показать текущее время UTC"),
                 BotCommand("freq", "Найти станции по частоте"),
                 BotCommand("refresh", "Обновить базу данных"),
             ])
