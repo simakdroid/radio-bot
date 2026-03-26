@@ -637,8 +637,9 @@ def build_message(now_utc: datetime, entries: list[Broadcast]) -> str:
         lines.append(f"{format_lang_label(lang)}:")
         for (station, itu), station_entries in sorted(grouped_by_lang[lang], key=lambda x: x[0][0].lower()):
             # Показываем все частоты и времена вещания
-            chunks = [f"{e.frequency}kHz {e.time_utc}" for e in station_entries]
-            lines.append(f"• {station} ({itu}) — {', '.join(chunks)}")
+            lines.append(f"{station} ({itu}):")
+            for e in station_entries:
+                lines.append(f"  • {e.frequency}kHz {e.time_utc}")
         lines.append("")
 
     body = "\n".join(lines).rstrip()
@@ -678,8 +679,9 @@ def build_language_specific_message(
     lines: list[str] = []
     for (station, itu), station_entries in sorted_stations:
         # Показываем все частоты и времена вещания
-        chunks = [f"{e.frequency}kHz {e.time_utc}" for e in station_entries]
-        lines.append(f"• {station} ({itu}) — {', '.join(chunks)}")
+        lines.append(f"{station} ({itu}):")
+        for e in station_entries:
+            lines.append(f"  • {e.frequency}kHz {e.time_utc}")
 
     message = f"{header}\nНайдено станций: {len(stations_dict)}\n\n" + "\n".join(lines)
     return message
@@ -946,8 +948,9 @@ async def handle_freq_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     for (station, itu), station_entries in sorted_stations:
         lang = station_entries[0].lang
         lang_label = format_lang_label(lang)
-        times = ", ".join(f"{e.time_utc}" for e in station_entries)
-        lines.append(f"• {station} ({itu}) — {lang_label}, {times}")
+        lines.append(f"{station} ({itu}) — {lang_label}:")
+        for e in station_entries:
+            lines.append(f"  • {e.frequency}kHz {e.time_utc}")
 
     message = "\n".join(lines)
     await update.message.reply_text(message)
