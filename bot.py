@@ -1013,7 +1013,6 @@ async def main() -> None:
     app.bot_data["chat_id"] = chat_id
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("now", now_command))
-    app.add_handler(CommandHandler("datetime_utc", datetime_utc_command))
     app.add_handler(CommandHandler("refresh", refresh_command))
     app.add_handler(CallbackQueryHandler(language_pick_callback, pattern=r"^lang(?::|_back$)"))
 
@@ -1058,7 +1057,6 @@ async def main() -> None:
             await app.bot.set_my_commands([
                 BotCommand("start", "Показать доступные команды"),
                 BotCommand("now", "Выбрать язык и получить станции на сегодня"),
-                BotCommand("datetime_utc", "Показать текущее время UTC"),
                 BotCommand("freq", "Найти станции по частоте"),
                 BotCommand("refresh", "Обновить базу данных"),
             ])
