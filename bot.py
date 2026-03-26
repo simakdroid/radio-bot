@@ -876,74 +876,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(
         "Доступные команды:\n"
         "/now — выбрать язык и получить список станций на сегодня (UTC).\n"
-        "/current — станции, вещающие в текущий час UTC.\n"
         "/datetime_utc — показать текущие дату и время UTC.\n"
-        "/freq — найти станции по частоте (бот спросит частоту).\n"
+        "/freq — найти станции по частоте (бот спросит частоту, вы введёте число).\n"
         "/refresh — принудительно обновить локальную SQLite базу."
     )
-
-
-def is_broadcasting_now(entry: Broadcast, current_hour: int) -> bool:
-    """Проверяет, вещает ли станция в текущий час."""
-    try:
-        start_str, end_str = entry.time_utc.split("-")
-        start_hour = int(start_str[:2])
-        end_hour = int(end_str[:2])
-        
-        # Если вещание переходит через полночь
-        if end_hour < start_hour:
-            return current_hour >= start_hour or current_hour < end_hour
-        else:
-            return start_hour <= current_hour < end_hour
-    except (ValueError, IndexError):
-        return False
-
-
-async def datetime_utc_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Показать текущие дату и время UTC."""
-    now_utc = datetime.now(timezone.utc)
-    await update.message.reply_text(
-        f"Текущее время UTC:\n{now_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC\n\n"
-        f"Часовой пояс: UTC"
-    )
-
-
-async def nowh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Показать станции, вещающие в текущий час UTC."""
-    now_utc = datetime.now(timezone.utc)
-    current_hour = now_utc.hour
-    db_path = context.application.bot_data["db_path"]
-    
-    entries = get_broadcasts_for_today(now_utc, db_path)
-    
-    # Фильтруем станции, вещающие в текущий час
-    broadcasting_now = [e for e in entries if is_broadcasting_now(e, current_hour)]
-    
-    if not broadcasting_now:
-        await update.message.reply_text(
-            f"В текущий час ({current_hour}:00 UTC) нет активных станций."
-        )
-        return
-    
-    # Группируем по станциям
-    stations_dict: dict[tuple[str, str], list[Broadcast]] = {}
-    for e in broadcasting_now:
-        key = (e.station, e.itu)
-        stations_dict.setdefault(key, []).append(e)
-    
-    sorted_stations = sorted(stations_dict.items(), key=lambda x: x[0][0].lower())
-    
-    lines = [f"Станции, вещающие в {current_hour}:00 UTC:\n"]
-    for (station, itu), station_entries in sorted_stations:
-        lang = station_entries[0].lang
-        lang_label = format_lang_label(lang)
-        lines.append(f"{station} ({itu}) — {lang_label}:")
-        for e in station_entries:
-            lines.append(f"  • {e.frequency}kHz {e.time_utc}")
-    
-    message = "\n".join(lines)
-    await update.message.reply_text(message)
-    logging.info("/current used by chat %s, hour=%d, stations=%d", update.effective_chat.id, current_hour, len(stations_dict))
 
 
 async def freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1077,7 +1013,6 @@ async def main() -> None:
     app.bot_data["chat_id"] = chat_id
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("now", now_command))
-    app.add_handler(CommandHandler("current", nowh_command))
     app.add_handler(CommandHandler("datetime_utc", datetime_utc_command))
     app.add_handler(CommandHandler("refresh", refresh_command))
     app.add_handler(CallbackQueryHandler(language_pick_callback, pattern=r"^lang(?::|_back$)"))
@@ -1123,7 +1058,6 @@ async def main() -> None:
             await app.bot.set_my_commands([
                 BotCommand("start", "Показать доступные команды"),
                 BotCommand("now", "Выбрать язык и получить станции на сегодня"),
-                BotCommand("current", "Станции, вещающие в текущий час"),
                 BotCommand("datetime_utc", "Показать текущее время UTC"),
                 BotCommand("freq", "Найти станции по частоте"),
                 BotCommand("refresh", "Обновить базу данных"),
