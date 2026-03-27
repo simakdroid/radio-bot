@@ -634,12 +634,13 @@ def build_message(now_utc: datetime, entries: list[Broadcast]) -> str:
 
     lines: list[str] = []
     for lang in sorted(grouped_by_lang.keys()):
-        lines.append(f"{format_lang_label(lang)}:")
+        lines.append(f"▸ {format_lang_label(lang)}:")
         for (station, itu), station_entries in sorted(grouped_by_lang[lang], key=lambda x: x[0][0].lower()):
-            # Показываем все частоты и времена вещания
-            lines.append(f"{station} ({itu}):")
-            for e in station_entries:
-                lines.append(f"  • {e.frequency}kHz {e.time_utc}")
+            # Сортируем по времени вещания
+            sorted_entries = sorted(station_entries, key=lambda e: e.time_utc)
+            lines.append(f"  ★ {station} ({itu}):")
+            for e in sorted_entries:
+                lines.append(f"    • {e.frequency}kHz {e.time_utc}")
         lines.append("")
 
     body = "\n".join(lines).rstrip()
@@ -678,10 +679,11 @@ def build_language_specific_message(
     sorted_stations = sorted(stations_dict.items(), key=lambda x: x[0][0].lower())
     lines: list[str] = []
     for (station, itu), station_entries in sorted_stations:
-        # Показываем все частоты и времена вещания
-        lines.append(f"{station} ({itu}):")
-        for e in station_entries:
-            lines.append(f"  • {e.frequency}kHz {e.time_utc}")
+        # Сортируем по времени вещания
+        sorted_entries = sorted(station_entries, key=lambda e: e.time_utc)
+        lines.append(f"  ★ {station} ({itu}):")
+        for e in sorted_entries:
+            lines.append(f"    • {e.frequency}kHz {e.time_utc}")
 
     message = f"{header}\nНайдено станций: {len(stations_dict)}\n\n" + "\n".join(lines)
     return message
@@ -957,9 +959,10 @@ async def handle_freq_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     for (station, itu), station_entries in sorted_stations:
         lang = station_entries[0].lang
         lang_label = format_lang_label(lang)
-        lines.append(f"{station} ({itu}) — {lang_label}:")
-        for e in station_entries:
-            lines.append(f"  • {e.frequency}kHz {e.time_utc}")
+        sorted_entries = sorted(station_entries, key=lambda e: e.time_utc)
+        lines.append(f"  ★ {station} ({itu}) — {lang_label}:")
+        for e in sorted_entries:
+            lines.append(f"    • {e.frequency}kHz {e.time_utc}")
 
     message = "\n".join(lines)
     await update.message.reply_text(message)
