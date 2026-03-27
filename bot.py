@@ -701,6 +701,48 @@ def build_language_specific_message(
     return message
 
 
+def build_current_language_message(
+    now_utc: datetime,
+    entries: list[Broadcast],
+    lang: str,
+    current_hour: int,
+) -> str:
+    """Построить сообщение для станций, вещающих в текущий час."""
+    date_str = now_utc.strftime("%Y-%m-%d")
+    header = (
+        f"Станции на {date_str} (UTC)\n"
+        f"Язык: {format_lang_label(lang)}\n"
+        f"Текущий час: {current_hour}:00 UTC\n"
+    )
+    # Фильтруем записи для выбранного языка
+    lang_entries = [e for e in entries if e.lang == lang]
+    if not lang_entries:
+        return header + f"\nДля выбранного языка в {current_hour}:00 UTC ничего не найдено."
+
+    # Группируем по станциям
+    stations_dict: dict[tuple[str, str], list[Broadcast]] = {}
+    for e in lang_entries:
+        key = (e.station, e.itu)
+        stations_dict.setdefault(key, []).append(e)
+
+    sorted_stations = sorted(stations_dict.items(), key=lambda x: x[0][0].lower())
+    lines: list[str] = []
+    for (station, itu), station_entries in sorted_stations:
+        # Группируем частоты по времени вещания
+        freq_by_time: dict[str, list[str]] = {}
+        for e in station_entries:
+            freq_by_time.setdefault(e.time_utc, []).append(e.frequency)
+        
+        lines.append(f"  ★ {station} ({itu}):")
+        for time_utc, freqs in sorted(freq_by_time.items()):
+            freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
+            time_formatted = format_time_utc(time_utc)
+            lines.append(f"    • {freqs_str}kHz {time_formatted}")
+
+    message = f"{header}\nНайдено станций: {len(stations_dict)}\n\n" + "\n".join(lines)
+    return message
+
+
 def split_message(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> list[str]:
     if len(text) <= limit:
         return [text]
@@ -894,6 +936,11 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
     data = query.data or ""
     cached_now_utc: datetime | None = context.chat_data.get("last_now_utc")
     cached_entries: list[Broadcast] | None = context.chat_data.get("last_entries")
+    current_hour: int | None = context.chat_data.get("last_current_hour")
+    
+    # Определяем режим: /now (все станции) или /current (только вещающие сейчас)
+    is_current_mode = current_hour is not None
+    
     if cached_now_utc is None or cached_entries is None:
         await query.edit_message_text("Сессия истекла. Отправьте /now еще раз.")
         return
@@ -904,17 +951,25 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
             return
 
         grouped_by_lang = group_stations_by_lang(cached_entries)
+        if is_current_mode:
+            prompt = f"Выберите язык вещания (станции, вещающие в {current_hour}:00 UTC):"
+        else:
+            prompt = "Выберите язык вещания на сегодня (UTC):"
         await query.edit_message_text(
-            "Выберите язык вещания на сегодня (UTC):",
+            prompt,
             reply_markup=build_language_keyboard(grouped_by_lang),
         )
         return
-
+    
     if not data.startswith("lang:"):
         return
     lang = data.split(":", 1)[1]
-
-    message = build_language_specific_message(cached_now_utc, cached_entries, lang)
+    
+    if is_current_mode:
+        message = build_current_language_message(cached_now_utc, cached_entries, lang, current_hour)
+    else:
+        message = build_language_specific_message(cached_now_utc, cached_entries, lang)
+    
     chunks = split_message(message)
     total = len(chunks)
     first_chunk = chunks[0]
@@ -931,7 +986,10 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
             if total > 1:
                 extra_chunk = f"({idx}/{total})\n{extra_chunk}"
             await context.bot.send_message(chat_id=query.message.chat_id, text=extra_chunk)
-    logging.info("Language selected by chat %s: %s", query.message.chat_id if query.message else "unknown", lang)
+    logging.info("Language selected by chat %s: %s (mode=%s)", 
+                 query.message.chat_id if query.message else "unknown", 
+                 lang, 
+                 "current" if is_current_mode else "daily")
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -970,48 +1028,41 @@ def is_broadcasting_now(entry: Broadcast, current_hour: int) -> bool:
 
 
 async def current_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Показать станции, вещающие в текущий час UTC."""
+    """Показать станции, вещающие в текущий час UTC (с выбором языка)."""
+    progress_message = await update.message.reply_text("Загружаю станции...")
+    
     now_utc = datetime.now(timezone.utc)
     current_hour = now_utc.hour
     db_path = context.application.bot_data["db_path"]
     
-    entries = get_broadcasts_for_today(now_utc, db_path)
-    
+    try:
+        entries = get_broadcasts_for_today(now_utc, db_path)
+    except Exception:
+        await progress_message.edit_text("Ошибка загрузки базы. Попробуйте позже.")
+        return
+
     # Фильтруем станции, вещающие в текущий час
     broadcasting_now = [e for e in entries if is_broadcasting_now(e, current_hour)]
     
     if not broadcasting_now:
-        await update.message.reply_text(
+        await progress_message.edit_text(
             f"В текущий час ({current_hour}:00 UTC) нет активных станций."
         )
         return
     
-    # Группируем по станциям
-    stations_dict: dict[tuple[str, str], list[Broadcast]] = {}
-    for e in broadcasting_now:
-        key = (e.station, e.itu)
-        stations_dict.setdefault(key, []).append(e)
+    # Группируем по языкам
+    grouped_by_lang = group_stations_by_lang(broadcasting_now)
     
-    sorted_stations = sorted(stations_dict.items(), key=lambda x: x[0][0].lower())
+    # Сохраняем данные для callback
+    context.chat_data["last_now_utc"] = now_utc
+    context.chat_data["last_entries"] = broadcasting_now
+    context.chat_data["last_current_hour"] = current_hour
     
-    lines = [f"Станции, вещающие в {current_hour}:00 UTC:\n"]
-    for (station, itu), station_entries in sorted_stations:
-        lang = station_entries[0].lang
-        lang_label = format_lang_label(lang)
-        # Группируем частоты по времени вещания
-        freq_by_time: dict[str, list[str]] = {}
-        for e in station_entries:
-            freq_by_time.setdefault(e.time_utc, []).append(e.frequency)
-        
-        lines.append(f"  ★ {station} ({itu}) — {lang_label}:")
-        for time_utc, freqs in sorted(freq_by_time.items()):
-            freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
-            time_formatted = format_time_utc(time_utc)
-            lines.append(f"    • {freqs_str}kHz {time_formatted}")
-    
-    message = "\n".join(lines)
-    await update.message.reply_text(message)
-    logging.info("/current used by chat %s, hour=%d, stations=%d", update.effective_chat.id, current_hour, len(stations_dict))
+    await progress_message.edit_text(
+        f"Выберите язык вещания (станции, вещающие в {current_hour}:00 UTC):",
+        reply_markup=build_language_keyboard(grouped_by_lang),
+    )
+    logging.info("/current used by chat %s, hour=%d, languages=%d", update.effective_chat.id, current_hour, len(grouped_by_lang))
 
 
 async def freq_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
