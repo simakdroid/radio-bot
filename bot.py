@@ -691,13 +691,11 @@ def build_language_specific_message(
         for e in station_entries:
             freq_by_time.setdefault(e.time_utc, []).append(e.frequency)
         
-        # Выводим: станцию, потом частоты и время
-        time_parts = []
-        for time_utc, freqs in sorted(freq_by_time.items(), key=lambda x: (-len(x[1]), x[0])):
+        # Выводим: станцию, потом частоты и время (по порядку от 00:00)
+        lines.append(f"  ★ {station} ({itu}):")
+        for time_utc, freqs in sorted(freq_by_time.items()):
             freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
-            time_parts.append(f"{freqs_str}kHz {time_utc}")
-        
-        lines.append(f"  ★ {station} ({itu}): {' | '.join(time_parts)}")
+            lines.append(f"    • {freqs_str}kHz {time_utc}")
 
     message = f"{header}\nНайдено станций: {len(stations_dict)}\n\n" + "\n".join(lines)
     return message
@@ -978,12 +976,10 @@ async def handle_freq_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         for e in station_entries:
             freq_by_time.setdefault(e.time_utc, []).append(e.frequency)
         
-        time_parts = []
-        for time_utc, freqs in sorted(freq_by_time.items(), key=lambda x: (-len(x[1]), x[0])):
+        lines.append(f"  ★ {station} ({itu}) — {lang_label}:")
+        for time_utc, freqs in sorted(freq_by_time.items()):
             freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
-            time_parts.append(f"{freqs_str}kHz {time_utc}")
-        
-        lines.append(f"  ★ {station} ({itu}) — {lang_label}: {' | '.join(time_parts)}")
+            lines.append(f"    • {freqs_str}kHz {time_utc}")
 
     message = "\n".join(lines)
     await update.message.reply_text(message)
