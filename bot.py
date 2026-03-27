@@ -641,13 +641,12 @@ def build_message(now_utc: datetime, entries: list[Broadcast]) -> str:
             for e in station_entries:
                 freq_by_time.setdefault(e.time_utc, []).append(e.frequency)
             
-            # Выводим: сначала станцию, потом частоты и время
-            time_parts = []
-            for time_utc, freqs in sorted(freq_by_time.items(), key=lambda x: (-len(x[1]), x[0])):
+            # Выводим: станцию, потом частоты и время (по порядку от 00:00)
+            lines.append(f"  ★ {station} ({itu}):")
+            for time_utc, freqs in sorted(freq_by_time.items()):
                 freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
-                time_parts.append(f"{freqs_str}kHz {time_utc}")
-            
-            lines.append(f"{station} ({itu}): {' | '.join(time_parts)}")
+                time_formatted = format_time_utc(time_utc)
+                lines.append(f"    • {freqs_str}kHz {time_formatted}")
         lines.append("")
 
     body = "\n".join(lines).rstrip()
@@ -695,7 +694,8 @@ def build_language_specific_message(
         lines.append(f"  ★ {station} ({itu}):")
         for time_utc, freqs in sorted(freq_by_time.items()):
             freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
-            lines.append(f"    • {freqs_str}kHz {time_utc}")
+            time_formatted = format_time_utc(time_utc)
+            lines.append(f"    • {freqs_str}kHz {time_formatted}")
 
     message = f"{header}\nНайдено станций: {len(stations_dict)}\n\n" + "\n".join(lines)
     return message
@@ -743,6 +743,15 @@ async def send_long_message(bot, chat_id: str | int, text: str) -> None:
 
 def unique_station_count(entries: list[Broadcast]) -> int:
     return len({(e.station, e.itu) for e in entries})
+
+
+def format_time_utc(time_str: str) -> str:
+    """Преобразует время из формата 0000-0100 в 00:00 - 01:00."""
+    try:
+        start, end = time_str.split("-")
+        return f"{start[:2]}:{start[2:]} - {end[:2]}:{end[2:]}"
+    except (ValueError, IndexError):
+        return time_str
 
 
 def format_lang_label(lang: str) -> str:
@@ -979,7 +988,8 @@ async def handle_freq_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         lines.append(f"  ★ {station} ({itu}) — {lang_label}:")
         for time_utc, freqs in sorted(freq_by_time.items()):
             freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
-            lines.append(f"    • {freqs_str}kHz {time_utc}")
+            time_formatted = format_time_utc(time_utc)
+            lines.append(f"    • {freqs_str}kHz {time_formatted}")
 
     message = "\n".join(lines)
     await update.message.reply_text(message)
