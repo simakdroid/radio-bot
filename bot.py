@@ -975,20 +975,10 @@ async def scheduled_report_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def scheduled_refresh_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
     db_path = context.application.bot_data["db_path"]
-    chat_id = context.application.bot_data.get("chat_id")
     now_utc = datetime.now(timezone.utc)
     try:
         rows = refresh_db_from_source(db_path, now_utc)
-        logging.info("Scheduled pre-refresh completed at 23:55 UTC. Rows: %d", rows)
-        # Отправляем уведомление об обновлении
-        if chat_id:
-            try:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"База данных обновлена: {rows} записей. (UTC: {now_utc.strftime('%H:%M')})"
-                )
-            except Exception as send_err:
-                logging.warning("Failed to send refresh notification: %s", send_err)
+        logging.info("Scheduled DB refresh at 23:55 UTC completed. Rows: %d", rows)
     except (requests.RequestException, sqlite3.Error) as exc:
         logging.warning("Scheduled pre-refresh failed: %s", exc)
 
