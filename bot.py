@@ -980,7 +980,23 @@ async def scheduled_refresh_callback(context: ContextTypes.DEFAULT_TYPE) -> None
         rows = refresh_db_from_source(db_path, now_utc)
         logging.info("Scheduled DB refresh at 23:55 UTC completed. Rows: %d", rows)
     except (requests.RequestException, sqlite3.Error) as exc:
-        logging.warning("Scheduled pre-refresh failed: %s", exc)
+        logging.warning("Scheduled refresh failed: %s", exc)
+
+
+async def scheduled_notify_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отправить уведомление об обновлении базы."""
+    chat_id = context.job.chat_id
+    now_utc = datetime.now(timezone.utc)
+    db_path = context.application.bot_data["db_path"]
+    
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"База данных EiBi обновлена.\nДата: {now_utc.strftime('%Y-%m-%d')}\nВремя UTC: {now_utc.strftime('%H:%M')}\n\nИспользуйте /now для просмотра станций."
+        )
+        logging.info("Notification sent to chat %s", chat_id)
+    except Exception as exc:
+        logging.warning("Failed to send notification: %s", exc)
 
 
 async def main() -> None:
@@ -1023,22 +1039,28 @@ async def main() -> None:
     # Обработчик для ввода частоты (проверяет флаг в user_data)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_freq_input))
 
-    app.job_queue.run_daily(
-        scheduled_refresh_callback,
-        time=time(hour=23, minute=55, tzinfo=timezone.utc),
-        days=(0, 1, 2, 3, 4, 5, 6),
-        name="daily_eibi_prerefresh",
-    )
-    app.job_queue.run_daily(
-        scheduled_report_callback,
-        time=time(hour=0, minute=0, tzinfo=timezone.utc),
-        days=(0, 1, 2, 3, 4, 5, 6),
-        chat_id=chat_id,
-        name="daily_eibi_report",
-    )
+    # Проверяем инициализацию job_queue
+    if app.job_queue is None:
+        logging.error("Job queue is not initialized!")
+    else:
+        # В 23:55 - обновление базы
+        app.job_queue.run_daily(
+            scheduled_refresh_callback,
+            time=time(hour=23, minute=55, tzinfo=timezone.utc),
+            days=(0, 1, 2, 3, 4, 5, 6),
+            name="daily_eibi_refresh",
+        )
+        # В 00:00 - отправка уведомления об обновлении
+        app.job_queue.run_daily(
+            scheduled_notify_callback,
+            time=time(hour=0, minute=0, tzinfo=timezone.utc),
+            days=(0, 1, 2, 3, 4, 5, 6),
+            chat_id=chat_id,
+            name="daily_eibi_notify",
+        )
+        logging.info("Scheduled tasks: daily_eibi_refresh at 23:55 UTC, daily_eibi_notify at 00:00 UTC")
 
-    logging.info("Bot started. DB pre-refresh scheduled at 23:55 UTC, report at 00:00 UTC.")
-    logging.info("Press Ctrl+C to stop.")
+    logging.info("Bot started. Press Ctrl+C to stop.")
 
     # Telegram API can be temporarily unavailable from local network/VPN/proxy.
     # Retry startup instead of crashing the whole process on transient timeouts.
