@@ -694,22 +694,37 @@ def build_language_specific_message(
         key = (e.station, e.itu)
         stations_dict.setdefault(key, []).append(e)
 
-    sorted_stations = sorted(stations_dict.items(), key=lambda x: x[0][0].lower())
-    lines: list[str] = []
-    for (station, itu), station_entries in sorted_stations:
-        # Группируем частоты по времени вещания
-        freq_by_time: dict[str, list[str]] = {}
-        for e in station_entries:
-            freq_by_time.setdefault(e.time_utc, []).append(e.frequency)
-        
-        # Выводим: станцию, потом частоты и время (по порядку от 00:00)
-        lines.append(f"  ★ {station} ({itu}):")
-        for time_utc, freqs in sorted(freq_by_time.items()):
-            freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
-            time_formatted = format_time_utc(time_utc)
-            lines.append(f"    • {freqs_str}kHz {time_formatted}")
+    # Группируем по стране (ITU): {itu: [(station, itu), [entries]]}
+    by_country: dict[str, list[tuple[tuple[str, str], list[Broadcast]]]] = {}
+    for station_key, station_entries in stations_dict.items():
+        itu = station_key[1]
+        by_country.setdefault(itu, []).append((station_key, station_entries))
 
-    message = f"{header}\nНайдено станций: {len(stations_dict)}\n\n" + "\n".join(lines)
+    # Сортируем станции внутри каждой страны по названию
+    for itu in by_country:
+        by_country[itu].sort(key=lambda x: x[0][0].lower())
+
+    # Сортируем страны по названию ITU-кода
+    sorted_countries = sorted(by_country.keys())
+
+    lines: list[str] = []
+    for itu in sorted_countries:
+        lines.append(f"{itu}:")  # Заголовок страны
+        for (station, _itu), station_entries in by_country[itu]:
+            # Группируем частоты по времени вещания
+            freq_by_time: dict[str, list[str]] = {}
+            for e in station_entries:
+                freq_by_time.setdefault(e.time_utc, []).append(e.frequency)
+            
+            # Выводим: станцию, потом частоты и время (по порядку от 00:00)
+            lines.append(f"  ★ {station}:")
+            for time_utc, freqs in sorted(freq_by_time.items()):
+                freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
+                time_formatted = format_time_utc(time_utc)
+                lines.append(f"    • {freqs_str}kHz {time_formatted}")
+        lines.append("")  # Пустая строка между странами
+
+    message = f"{header}\nНайдено станций: {len(stations_dict)}\n\n" + "\n".join(lines).rstrip()
     return message
 
 
@@ -737,21 +752,36 @@ def build_current_language_message(
         key = (e.station, e.itu)
         stations_dict.setdefault(key, []).append(e)
 
-    sorted_stations = sorted(stations_dict.items(), key=lambda x: x[0][0].lower())
-    lines: list[str] = []
-    for (station, itu), station_entries in sorted_stations:
-        # Группируем частоты по времени вещания
-        freq_by_time: dict[str, list[str]] = {}
-        for e in station_entries:
-            freq_by_time.setdefault(e.time_utc, []).append(e.frequency)
-        
-        lines.append(f"  ★ {station} ({itu}):")
-        for time_utc, freqs in sorted(freq_by_time.items()):
-            freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
-            time_formatted = format_time_utc(time_utc)
-            lines.append(f"    • {freqs_str}kHz {time_formatted}")
+    # Группируем по стране (ITU): {itu: [(station, itu), [entries]]}
+    by_country: dict[str, list[tuple[tuple[str, str], list[Broadcast]]]] = {}
+    for station_key, station_entries in stations_dict.items():
+        itu = station_key[1]
+        by_country.setdefault(itu, []).append((station_key, station_entries))
 
-    message = f"{header}\nНайдено станций: {len(stations_dict)}\n\n" + "\n".join(lines)
+    # Сортируем станции внутри каждой страны по названию
+    for itu in by_country:
+        by_country[itu].sort(key=lambda x: x[0][0].lower())
+
+    # Сортируем страны по названию ITU-кода
+    sorted_countries = sorted(by_country.keys())
+
+    lines: list[str] = []
+    for itu in sorted_countries:
+        lines.append(f"{itu}:")  # Заголовок страны
+        for (station, _itu), station_entries in by_country[itu]:
+            # Группируем частоты по времени вещания
+            freq_by_time: dict[str, list[str]] = {}
+            for e in station_entries:
+                freq_by_time.setdefault(e.time_utc, []).append(e.frequency)
+            
+            lines.append(f"  ★ {station}:")
+            for time_utc, freqs in sorted(freq_by_time.items()):
+                freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
+                time_formatted = format_time_utc(time_utc)
+                lines.append(f"    • {freqs_str}kHz {time_formatted}")
+        lines.append("")  # Пустая строка между странами
+
+    message = f"{header}\nНайдено станций: {len(stations_dict)}\n\n" + "\n".join(lines).rstrip()
     return message
 
 
