@@ -484,10 +484,22 @@ def has_broadcast_rows(conn: sqlite3.Connection) -> bool:
     return row is not None
 
 
+def is_russian_aero_station(item: Broadcast) -> bool:
+    """Проверяет, является ли станция русскоязычной с 'Aero' в названии (регистронезависимо)."""
+    return item.lang == "R" and "AERO" in item.station.upper()
+
+
 def refresh_db_from_source(db_path: str, now_utc: datetime) -> int:
     ensure_db_parent_dir(db_path)
     lines = fetch_eibi_lines()
     parsed = [item for line in lines if (item := parse_line(line)) is not None]
+
+    # Исключаем русскоязычные станции с "Aero" в названии
+    original_count = len(parsed)
+    parsed = [item for item in parsed if not is_russian_aero_station(item)]
+    excluded = original_count - len(parsed)
+    if excluded:
+        logging.info("Excluded %d Russian Aero stations.", excluded)
 
     conn = sqlite3.connect(db_path)
     try:
