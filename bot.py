@@ -1164,6 +1164,115 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 
+def get_countries_for_language(entries: list[Broadcast], lang: str) -> list[str]:
+    """Возвращает отсортированный список стран (ITU-кодов) для указанного языка."""
+    lang_entries = [e for e in entries if e.lang == lang]
+    itu_codes = set()
+    for e in lang_entries:
+        itu_codes.add(e.itu)
+    return sorted(itu_codes)
+
+
+def build_country_navigation_keyboard(
+    lang: str,
+    countries: list[str],
+    current_index: int,
+) -> InlineKeyboardMarkup:
+    """Создает клавиатуру навигации по странам."""
+    buttons: list[list[InlineKeyboardButton]] = []
+    
+    # Первая кнопка - название первой страны (текущей)
+    current_country = countries[current_index]
+    country_name = format_itu_label(current_country)
+    buttons.append([
+        InlineKeyboardButton(f"📍 {country_name}", callback_data=f"country:{lang}:{current_index}:show")
+    ])
+    
+    # Навигационные кнопки (стрелки)
+    nav_buttons = []
+    
+    # Назад (предыдущая страна)
+    if len(countries) > 1:
+        if current_index > 0:
+            nav_buttons.append(InlineKeyboardButton("◀ Назад", callback_data=f"country:{lang}:{current_index}:prev"))
+        else:
+            nav_buttons.append(InlineKeyboardButton("◀ Назад", callback_data="noop"))  # Неактивная
+        
+        # Счетчик страниц
+        nav_buttons.append(InlineKeyboardButton(f"{current_index + 1}/{len(countries)}", callback_data="noop"))
+        
+        # Вперед (следующая страна)
+        if current_index < len(countries) - 1:
+            nav_buttons.append(InlineKeyboardButton("Вперед ▶", callback_data=f"country:{lang}:{current_index}:next"))
+        else:
+            nav_buttons.append(InlineKeyboardButton("Вперед ▶", callback_data="noop"))  # Неактивная
+    
+    if nav_buttons:
+        buttons.append(nav_buttons)
+    
+    # Кнопка назад к языкам
+    buttons.append([InlineKeyboardButton("⬅ Назад к языкам", callback_data="lang_back")])
+    
+    return InlineKeyboardMarkup(buttons)
+
+
+def build_country_stations_message(
+    now_utc: datetime,
+    entries: list[Broadcast],
+    lang: str,
+    country_index: int,
+    current_hour: int | None = None,
+) -> tuple[str, list[str]]:
+    """Создает сообщение со станциями для указанного языка и страны.
+    Возвращает (заголовок, список станций).
+    current_hour - если указан, показывает станции для текущего часа (режим /current)
+    """
+    countries = get_countries_for_language(entries, lang)
+    if country_index >= len(countries):
+        return "Страна не найдена.", []
+    
+    itu = countries[country_index]
+    country_name = format_itu_label(itu)
+    
+    # Фильтруем записи для выбранного языка и страны
+    lang_country_entries = [e for e in entries if e.lang == lang and e.itu == itu]
+    
+    if not lang_country_entries:
+        return f"{country_name}: станции не найдены.", []
+    
+    # Группируем по станциям
+    stations_dict: dict[tuple[str, str], list[Broadcast]] = {}
+    for e in lang_country_entries:
+        key = (e.station, e.itu)
+        stations_dict.setdefault(key, []).append(e)
+
+    # Сортируем станции по названию
+    sorted_stations = sorted(stations_dict.items(), key=lambda x: x[0][0].lower())
+
+    # Формируем заголовок
+    if current_hour is not None:
+        header = f"Страна: {country_name}\nЯзык: {format_lang_label(lang)}\nТекущий час: {current_hour}:00 UTC"
+    else:
+        header = f"Страна: {country_name}\nЯзык: {format_lang_label(lang)}"
+    lines = [header, ""]
+    
+    for (station, _itu), station_entries in sorted_stations:
+        # Группируем частоты по времени вещания
+        freq_by_time: dict[str, list[str]] = {}
+        for e in station_entries:
+            freq_by_time.setdefault(e.time_utc, []).append(e.frequency)
+        
+        lines.append(f"★ {station}:")
+        for time_utc, freqs in sorted(freq_by_time.items()):
+            freqs_str = ", ".join(sorted(freqs, key=lambda f: float(f)))
+            time_formatted = format_time_utc(time_utc)
+            lines.append(f"  • {freqs_str}kHz {time_formatted}")
+        lines.append("")
+    
+    message = "\n".join(lines).rstrip()
+    return message, countries
+
+
 async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
@@ -1179,6 +1288,7 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text("Сессия истекла. Отправьте /now еще раз.")
         return
 
+    # Обработка возврата к языкам
     if data == "lang_back":
         if not cached_entries:
             await query.edit_message_text("Сегодня не найдено станций.")
@@ -1195,35 +1305,71 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
         )
         return
     
-    if not data.startswith("lang:"):
+    # Обработка выбора языка
+    if data.startswith("lang:"):
+        lang = data.split(":", 1)[1]
+        countries = get_countries_for_language(cached_entries, lang)
+        
+        if not countries:
+            await query.edit_message_text(f"Для языка {format_lang_label(lang)} станции не найдены.")
+            return
+        
+        # Сохраняем информацию о выбранном языке и странах
+        context.chat_data[f"lang_{lang}_countries"] = countries
+        
+        # Показываем навигацию по странам (с первой страницы)
+        keyboard = build_country_navigation_keyboard(lang, countries, 0)
+        
+        message, _ = build_country_stations_message(cached_now_utc, cached_entries, lang, 0, current_hour)
+        
+        await query.edit_message_text(message, reply_markup=keyboard)
+        
+        logging.info("Language selected by chat %s: %s (countries=%d, mode=%s)", 
+                     query.message.chat_id if query.message else "unknown", 
+                     lang, 
+                     len(countries),
+                     "current" if is_current_mode else "daily")
         return
-    lang = data.split(":", 1)[1]
     
-    if is_current_mode:
-        message = build_current_language_message(cached_now_utc, cached_entries, lang, current_hour)
-    else:
-        message = build_language_specific_message(cached_now_utc, cached_entries, lang)
-    
-    chunks = split_message(message)
-    total = len(chunks)
-    first_chunk = chunks[0]
-    if total > 1:
-        first_chunk = f"(1/{total})\n{first_chunk}"
-    await query.edit_message_text(
-        first_chunk,
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("Назад к языкам", callback_data="lang_back")]]
-        ),
-    )
-    if query.message:
-        for idx, extra_chunk in enumerate(chunks[1:], start=2):
-            if total > 1:
-                extra_chunk = f"({idx}/{total})\n{extra_chunk}"
-            await context.bot.send_message(chat_id=query.message.chat_id, text=extra_chunk)
-    logging.info("Language selected by chat %s: %s (mode=%s)", 
-                 query.message.chat_id if query.message else "unknown", 
-                 lang, 
-                 "current" if is_current_mode else "daily")
+    # Обработка навигации по странам
+    if data.startswith("country:"):
+        parts = data.split(":")
+        if len(parts) != 4:
+            return
+        
+        lang = parts[1]
+        current_index = int(parts[2])
+        action = parts[3]
+        
+        # Получаем список стран
+        countries = context.chat_data.get(f"lang_{lang}_countries")
+        if countries is None:
+            countries = get_countries_for_language(cached_entries, lang)
+            context.chat_data[f"lang_{lang}_countries"] = countries
+        
+        if not countries:
+            await query.edit_message_text("Страны не найдены.")
+            return
+        
+        # Вычисляем новый индекс
+        new_index = current_index
+        if action == "next":
+            new_index = min(current_index + 1, len(countries) - 1)
+        elif action == "prev":
+            new_index = max(current_index - 1, 0)
+        elif action == "show":
+            new_index = current_index
+        
+        # Если нажали на ту же кнопку (noop) - игнорируем
+        if action == "noop":
+            return
+        
+        # Показываем станции для новой страны
+        message, _ = build_country_stations_message(cached_now_utc, cached_entries, lang, new_index, current_hour)
+        keyboard = build_country_navigation_keyboard(lang, countries, new_index)
+        
+        await query.edit_message_text(message, reply_markup=keyboard)
+        return
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1449,7 +1595,7 @@ async def main() -> None:
     app.add_handler(CommandHandler("datetime", datetime_command))
     app.add_handler(CommandHandler("current", current_command))
     app.add_handler(CommandHandler("refresh", refresh_command))
-    app.add_handler(CallbackQueryHandler(language_pick_callback, pattern=r"^lang(?::|_back$)"))
+    app.add_handler(CallbackQueryHandler(language_pick_callback, pattern=r"^(lang(?::|_back$)|country:|noop$)"))
 
     # Обработчик для команды /freq
     app.add_handler(CommandHandler("freq", freq_command))
