@@ -149,10 +149,21 @@ def save_broadcasts(conn: sqlite3.Connection, items: list[Broadcast], replace: b
     conn.commit()
 
 
-def run(db_path: str, url: str, replace: bool) -> tuple[int, int]:
+def is_russian_aero_station(item: Broadcast) -> bool:
+    """Проверяет, является ли станция русскоязычной с 'Aero' в названии."""
+    return item.lang == "R" and "Aero" in item.station
+
+
+def run(db_path: str, url: str, replace: bool, exclude_russian_aero: bool) -> tuple[int, int]:
     ensure_db_parent_dir(db_path)
     lines = fetch_lines(url)
     parsed = [item for line in lines if (item := parse_line(line)) is not None]
+
+    if exclude_russian_aero:
+        original_count = len(parsed)
+        parsed = [item for item in parsed if not is_russian_aero_station(item)]
+        excluded = original_count - len(parsed)
+        print(f"Excluded {excluded} Russian Aero stations.")
 
     conn = sqlite3.connect(db_path)
     try:
@@ -175,12 +186,18 @@ def main() -> None:
         action="store_true",
         help="Append records instead of replacing existing rows.",
     )
+    parser.add_argument(
+        "--exclude-russian-aero",
+        action="store_true",
+        help="Exclude Russian-language stations with 'Aero' in the name.",
+    )
     args = parser.parse_args()
 
     total_lines, total_parsed = run(
         db_path=args.db,
         url=args.url,
         replace=not args.append,
+        exclude_russian_aero=args.exclude_russian_aero,
     )
     print(
         f"Done. Lines read: {total_lines}, rows parsed: {total_parsed}, database: {args.db}"
