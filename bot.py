@@ -1193,19 +1193,14 @@ def build_country_navigation_keyboard(
     
     # Назад (предыдущая страна)
     if len(countries) > 1:
-        if current_index > 0:
-            nav_buttons.append(InlineKeyboardButton("◀ Назад", callback_data=f"country:{lang}:{current_index}:prev"))
-        else:
-            nav_buttons.append(InlineKeyboardButton("◀ Назад", callback_data="noop"))  # Неактивная
+        # Кнопка Назад (циклическая навигация)
+        nav_buttons.append(InlineKeyboardButton("◀ Назад", callback_data=f"country:{lang}:{current_index}:prev"))
         
-        # Счетчик страниц
+        # Счетчик стран
         nav_buttons.append(InlineKeyboardButton(f"{current_index + 1}/{len(countries)}", callback_data="noop"))
         
-        # Вперед (следующая страна)
-        if current_index < len(countries) - 1:
-            nav_buttons.append(InlineKeyboardButton("Вперед ▶", callback_data=f"country:{lang}:{current_index}:next"))
-        else:
-            nav_buttons.append(InlineKeyboardButton("Вперед ▶", callback_data="noop"))  # Неактивная
+        # Кнопка Вперед (циклическая навигация)
+        nav_buttons.append(InlineKeyboardButton("Вперед ▶", callback_data=f"country:{lang}:{current_index}:next"))
     
     if nav_buttons:
         buttons.append(nav_buttons)
@@ -1351,12 +1346,12 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
             await query.edit_message_text("Страны не найдены.")
             return
         
-        # Вычисляем новый индекс
+        # Вычисляем новый индекс (циклическая навигация)
         new_index = current_index
         if action == "next":
-            new_index = min(current_index + 1, len(countries) - 1)
+            new_index = (current_index + 1) % len(countries)
         elif action == "prev":
-            new_index = max(current_index - 1, 0)
+            new_index = (current_index - 1) % len(countries)
         elif action == "show":
             new_index = current_index
         
