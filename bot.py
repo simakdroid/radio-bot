@@ -1209,10 +1209,10 @@ def build_country_navigation_keyboard(
     # Кнопка переключения режима
     if current_hour is not None:
         # Мы в режиме /current - добавляем кнопку перехода на /now
-        buttons.append([InlineKeyboardButton("📅 Перейти на текущий день", callback_data="switch_to_daily")])
+        buttons.append([InlineKeyboardButton("📅 Станции текущего дня", callback_data="switch_to_daily")])
     else:
         # Мы в режиме /now - добавляем кнопку перехода на /current
-        buttons.append([InlineKeyboardButton("⏰ Перейти на текущий час", callback_data="switch_to_current")])
+        buttons.append([InlineKeyboardButton("⏰ Станции текущего часа", callback_data="switch_to_current")])
     
     # Кнопка назад к языкам
     buttons.append([InlineKeyboardButton("⬅ Назад к языкам", callback_data="lang_back")])
