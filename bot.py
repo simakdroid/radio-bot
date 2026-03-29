@@ -1081,6 +1081,7 @@ def is_special_lang_code(lang: str) -> bool:
 def build_language_keyboard(
     grouped_by_lang: dict[str, list[tuple[tuple[str, str], list[Broadcast]]]],
     min_stations: int = 10,
+    current_hour: int | None = None,
 ) -> InlineKeyboardMarkup:
     # Фильтруем языки: специальные коды всегда включаем, остальные - по порогу
     lang_counts = sorted(
@@ -1100,6 +1101,15 @@ def build_language_keyboard(
             row = []
     if row:
         keyboard_rows.append(row)
+
+    # Кнопка переключения режима
+    if current_hour is not None:
+        # Мы в режиме /current - добавляем кнопку перехода на /now
+        keyboard_rows.append([InlineKeyboardButton("📅 Станции текущего дня", callback_data="switch_to_daily")])
+    else:
+        # Мы в режиме /now - добавляем кнопку перехода на /current
+        keyboard_rows.append([InlineKeyboardButton("⏰ Станции текущего часа", callback_data="switch_to_current")])
+    
     return InlineKeyboardMarkup(keyboard_rows)
 
 
@@ -1141,7 +1151,7 @@ async def now_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         "Выберите язык вещания на сегодня (UTC):"
         if fresh_today
         else "Выберите язык вещания на сегодня (UTC).\n(Показаны последние доступные данные из локальной базы.)",
-        reply_markup=build_language_keyboard(grouped_by_lang),
+        reply_markup=build_language_keyboard(grouped_by_lang, current_hour=None),
     )
     logging.info("/now used by chat %s. Languages offered: %d", update.effective_chat.id, len(grouped_by_lang))
 
@@ -1205,14 +1215,6 @@ def build_country_navigation_keyboard(
     
     if nav_buttons:
         buttons.append(nav_buttons)
-    
-    # Кнопка переключения режима
-    if current_hour is not None:
-        # Мы в режиме /current - добавляем кнопку перехода на /now
-        buttons.append([InlineKeyboardButton("📅 Станции текущего дня", callback_data="switch_to_daily")])
-    else:
-        # Мы в режиме /now - добавляем кнопку перехода на /current
-        buttons.append([InlineKeyboardButton("⏰ Станции текущего часа", callback_data="switch_to_current")])
     
     # Кнопка назад к языкам
     buttons.append([InlineKeyboardButton("⬅ Назад к языкам", callback_data="lang_back")])
@@ -1305,7 +1307,7 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
             prompt = "Выберите язык вещания на сегодня (UTC):"
         await query.edit_message_text(
             prompt,
-            reply_markup=build_language_keyboard(grouped_by_lang),
+            reply_markup=build_language_keyboard(grouped_by_lang, current_hour=current_hour),
         )
         return
     
@@ -1339,7 +1341,7 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
         grouped_by_lang = group_stations_by_lang(entries)
         await query.edit_message_text(
             prompt,
-            reply_markup=build_language_keyboard(grouped_by_lang),
+            reply_markup=build_language_keyboard(grouped_by_lang, current_hour=new_current_hour),
         )
         return
     
@@ -1478,7 +1480,7 @@ async def current_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     await progress_message.edit_text(
         f"Выберите язык вещания (станции, вещающие в {current_hour}:00 UTC):",
-        reply_markup=build_language_keyboard(grouped_by_lang),
+        reply_markup=build_language_keyboard(grouped_by_lang, current_hour=current_hour),
     )
     logging.info("/current used by chat %s, hour=%d, languages=%d", update.effective_chat.id, current_hour, len(grouped_by_lang))
 
