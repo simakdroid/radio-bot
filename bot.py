@@ -1177,6 +1177,7 @@ def build_country_navigation_keyboard(
     lang: str,
     countries: list[str],
     current_index: int,
+    current_hour: int | None = None,
 ) -> InlineKeyboardMarkup:
     """Создает клавиатуру навигации по странам."""
     buttons: list[list[InlineKeyboardButton]] = []
@@ -1204,6 +1205,14 @@ def build_country_navigation_keyboard(
     
     if nav_buttons:
         buttons.append(nav_buttons)
+    
+    # Кнопка переключения режима
+    if current_hour is not None:
+        # Мы в режиме /current - добавляем кнопку перехода на /now
+        buttons.append([InlineKeyboardButton("📅 Перейти на текущий день", callback_data="switch_to_daily")])
+    else:
+        # Мы в режиме /now - добавляем кнопку перехода на /current
+        buttons.append([InlineKeyboardButton("⏰ Перейти на текущий час", callback_data="switch_to_current")])
     
     # Кнопка назад к языкам
     buttons.append([InlineKeyboardButton("⬅ Назад к языкам", callback_data="lang_back")])
@@ -1300,6 +1309,40 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
         )
         return
     
+    # Обработка переключения режима: /now <-> /current
+    if data == "switch_to_daily" or data == "switch_to_current":
+        db_path = context.application.bot_data["db_path"]
+        
+        if data == "switch_to_daily":
+            # Переход на /now - получаем все станции на сегодня
+            entries = get_broadcasts_for_today(cached_now_utc, db_path)
+            new_current_hour = None
+            prompt = "Выберите язык вещания на сегодня (UTC):"
+        else:
+            # Переход на /current - фильтруем по текущему часу
+            new_current_hour = cached_now_utc.hour
+            all_entries = get_broadcasts_for_today(cached_now_utc, db_path)
+            entries = [e for e in all_entries if is_broadcasting_now(e, new_current_hour)]
+            prompt = f"Выберите язык вещания (станции, вещающие в {new_current_hour}:00 UTC):"
+        
+        if not entries:
+            await query.edit_message_text(
+                "Нет станций в выбранном режиме." if new_current_hour is None
+                else f"В текущий час ({new_current_hour}:00 UTC) нет активных станций."
+            )
+            return
+        
+        # Обновляем данные в chat_data
+        context.chat_data["last_entries"] = entries
+        context.chat_data["last_current_hour"] = new_current_hour
+        
+        grouped_by_lang = group_stations_by_lang(entries)
+        await query.edit_message_text(
+            prompt,
+            reply_markup=build_language_keyboard(grouped_by_lang),
+        )
+        return
+    
     # Обработка выбора языка
     if data.startswith("lang:"):
         lang = data.split(":", 1)[1]
@@ -1313,7 +1356,7 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
         context.chat_data[f"lang_{lang}_countries"] = countries
         
         # Показываем навигацию по странам (с первой страницы)
-        keyboard = build_country_navigation_keyboard(lang, countries, 0)
+        keyboard = build_country_navigation_keyboard(lang, countries, 0, current_hour)
         
         message, _ = build_country_stations_message(cached_now_utc, cached_entries, lang, 0, current_hour)
         
@@ -1361,7 +1404,7 @@ async def language_pick_callback(update: Update, context: ContextTypes.DEFAULT_T
         
         # Показываем станции для новой страны
         message, _ = build_country_stations_message(cached_now_utc, cached_entries, lang, new_index, current_hour)
-        keyboard = build_country_navigation_keyboard(lang, countries, new_index)
+        keyboard = build_country_navigation_keyboard(lang, countries, new_index, current_hour)
         
         await query.edit_message_text(message, reply_markup=keyboard)
         return
@@ -1590,7 +1633,7 @@ async def main() -> None:
     app.add_handler(CommandHandler("datetime", datetime_command))
     app.add_handler(CommandHandler("current", current_command))
     app.add_handler(CommandHandler("refresh", refresh_command))
-    app.add_handler(CallbackQueryHandler(language_pick_callback, pattern=r"^(lang(?::|_back$)|country:|noop$)"))
+    app.add_handler(CallbackQueryHandler(language_pick_callback, pattern=r"^(lang(?::|_back$)|country:|noop|switch_to_daily|switch_to_current$)"))
 
     # Обработчик для команды /freq
     app.add_handler(CommandHandler("freq", freq_command))
