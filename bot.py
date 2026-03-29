@@ -1070,7 +1070,7 @@ def format_time_utc(time_str: str) -> str:
 
 
 def format_lang_label(lang: str) -> str:
-    return f"{lang} ({LANGUAGE_NAMES[lang]})" if lang in LANGUAGE_NAMES else lang
+    return LANGUAGE_NAMES.get(lang, lang)
 
 
 def is_special_lang_code(lang: str) -> bool:
