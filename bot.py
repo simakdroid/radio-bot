@@ -1124,7 +1124,7 @@ def build_language_keyboard(
     row: list[InlineKeyboardButton] = []
     for idx, (lang, count) in enumerate(lang_counts, start=1):
         row.append(InlineKeyboardButton(f"{format_lang_label(lang)} ({count})", callback_data=f"lang:{lang}"))
-        if idx % 4 == 0:
+        if idx % 2 == 0:
             keyboard_rows.append(row)
             row = []
     if row:
